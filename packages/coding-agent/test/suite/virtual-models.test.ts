@@ -36,7 +36,7 @@ describe("AgentSession virtual models", () => {
 		for (const harness of harnesses.splice(0)) harness.cleanup();
 	});
 
-	async function createRoutedHarness(route: Route = defaultRoute, options: HarnessOptions = {}) {
+	async function createRoutedHarness(route: Route = defaultRoute, options: HarnessOptions = {}, virtualWindow = 1000) {
 		const requests: ModelRouteRequest[] = [];
 		const harness = await createHarness({
 			...options,
@@ -53,7 +53,7 @@ describe("AgentSession virtual models", () => {
 						id: "auto",
 						name: "Auto",
 						thinkingLevels: ["low", "high"],
-						contextWindow: 1000,
+						contextWindow: virtualWindow,
 						route(request, ctx) {
 							requests.push(request);
 							return route(request, ctx);
@@ -97,6 +97,23 @@ describe("AgentSession virtual models", () => {
 		expect(harness.session.thinkingLevel).toBe("high");
 		// Limits come from the physical model that produced the latest response, not the virtual model.
 		expect(harness.session.getContextUsage()?.contextWindow).toBe(50_000);
+	});
+
+	// Regression for #12035: failed routing records the virtual model, not a physical response.
+	it("waits for a known context window before threshold compaction after a routing error", async () => {
+		const { harness } = await createRoutedHarness(
+			() => {
+				throw new Error("router unavailable");
+			},
+			{ settings: { compaction: { enabled: true, reserveTokens: 100, keepRecentTokens: 1 } } },
+			0,
+		);
+
+		await harness.session.prompt("first turn before the router is ready");
+		await harness.session.prompt("try again");
+
+		expect(harness.session.messages.at(-1)).toMatchObject({ stopReason: "error", model: "auto" });
+		expect(harness.eventsOfType("compaction_start")).toHaveLength(0);
 	});
 
 	it("retries the first request of a turn on the model routed for that turn", async () => {
@@ -190,17 +207,21 @@ describe("AgentSession virtual models", () => {
 		expect(reasons()).toEqual(["user", "user"]);
 	});
 
+	// #12035: a routing failure still uses the previous physical window for threshold compaction.
 	it("ends the run with an error response when routing fails and keeps the last physical limits", async () => {
 		let fail = false;
-		const { harness } = await createRoutedHarness((request, ctx) => {
-			if (fail) throw new Error("router unavailable");
-			return defaultRoute(request, ctx);
-		});
+		const { harness } = await createRoutedHarness(
+			(request, ctx) => {
+				if (fail) throw new Error("router unavailable");
+				return defaultRoute(request, ctx);
+			},
+			{ settings: { compaction: { enabled: true, reserveTokens: 100, keepRecentTokens: 1 } } },
+		);
 		harness.setResponses([fauxAssistantMessage("answer")]);
 		await harness.session.prompt("hello");
 
 		fail = true;
-		await harness.session.prompt("again");
+		await harness.session.prompt("x".repeat(8000));
 
 		expect(harness.session.messages.at(-1)).toMatchObject({
 			role: "assistant",
@@ -212,6 +233,7 @@ describe("AgentSession virtual models", () => {
 		expect(harness.faux.state.callCount).toBe(1);
 		// The failed attempt names the virtual model, whose declared window is 1k; the large model's 50k applies.
 		expect(harness.session.getContextUsage()?.contextWindow).toBe(50_000);
+		expect(harness.eventsOfType("compaction_start")).toHaveLength(0);
 	});
 
 	it("checks compaction against the physical model that produced the response", async () => {
