@@ -1,5 +1,6 @@
 import { convertImageBytesToPng } from "./image-convert.ts";
 import { formatDimensionNote, type ImageResizeOptions, resizeImage } from "./image-resize.ts";
+import { detectSupportedImageMimeType } from "./mime.ts";
 
 export interface ProcessImageOptions {
 	/** Whether to resize images to inline provider limits. Default: true */
@@ -46,7 +47,8 @@ function normalizeSupportedImageMimeType(mimeType: string): string | null {
 	}
 }
 
-async function normalizeImage(bytes: Uint8Array, mimeType: string): Promise<NormalizedImage | null> {
+async function normalizeImage(bytes: Uint8Array, declaredMimeType: string): Promise<NormalizedImage | null> {
+	const mimeType = detectSupportedImageMimeType(bytes) ?? declaredMimeType;
 	const normalizedMimeType = normalizeSupportedImageMimeType(mimeType);
 	if (normalizedMimeType) {
 		return { bytes, mimeType: normalizedMimeType };

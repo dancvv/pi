@@ -75,6 +75,15 @@ describe("normalizeToolResultImages", () => {
 		expect(await normalizeToolResultImages(content)).toBe(content);
 	});
 
+	it.each([true, false])("corrects a tool's image MIME type with auto-resize set to %s", async (autoResizeImages) => {
+		const data = createPng(1, 1).toString("base64");
+		const content: ToolResultContent[] = [{ type: "image", data, mimeType: "image/jpeg" }];
+
+		expect(await normalizeToolResultImages(content, { autoResizeImages })).toEqual([
+			{ type: "image", data, mimeType: "image/png" },
+		]);
+	});
+
 	it("resizes oversized images and reports the original dimensions", async () => {
 		const content: ToolResultContent[] = [imageBlock(createPng(2400, 4800), "image/png")];
 
@@ -102,8 +111,8 @@ describe("normalizeToolResultImages", () => {
 		expect(normalized).toBe(content);
 	});
 
-	it("converts unsupported image formats even when auto-resize is disabled", async () => {
-		const content: ToolResultContent[] = [imageBlock(createTinyBmp1x1Red24bpp(), "image/bmp")];
+	it.each(["image/bmp", "image/jpeg"])("converts BMP labeled %s with resizing off", async (mimeType) => {
+		const content: ToolResultContent[] = [imageBlock(createTinyBmp1x1Red24bpp(), mimeType)];
 
 		const normalized = await normalizeToolResultImages(content, { autoResizeImages: false });
 
