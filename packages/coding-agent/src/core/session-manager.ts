@@ -30,6 +30,7 @@ import { basename, join, resolve } from "path";
 import { createInterface } from "readline";
 import { StringDecoder } from "string_decoder";
 import { APP_NAME, getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.ts";
+import { detectInlineImageMimeTypeFromBase64 } from "../utils/mime.ts";
 import { normalizePath, pathsEqual, resolvePath } from "../utils/paths.ts";
 import {
 	type BashExecutionMessage,
@@ -585,6 +586,23 @@ export function buildSessionContext(
 	return { messages, thinkingLevel, model };
 }
 
+/** Older tools could store a JPEG label on PNG bytes, which providers reject on every replay. */
+function restoreToolImageMimeTypes(entry: FileEntry): FileEntry {
+	if (entry.type !== "message" || entry.message?.role !== "toolResult" || !Array.isArray(entry.message.content)) {
+		return entry;
+	}
+	const message = entry.message;
+	let content: typeof message.content | undefined;
+	for (const [index, block] of message.content.entries()) {
+		if (block?.type !== "image" || typeof block.data !== "string") continue;
+		const mimeType = detectInlineImageMimeTypeFromBase64(block.data);
+		if (!mimeType || mimeType === block.mimeType) continue;
+		content ??= message.content.slice();
+		content[index] = { ...block, mimeType };
+	}
+	return content ? { ...entry, message: { ...message, content } } : entry;
+}
+
 /**
  * Compute the default session directory for a cwd.
  * Encodes cwd into a safe directory name under ~/.pi/agent/sessions/.
@@ -1107,6 +1125,8 @@ export class SessionManager {
 			this.fileEntries = this.fileEntries.concat(entries);
 		}
 
+		// Repair the in-memory copy once, after any migration that writes to disk.
+		this.fileEntries = this.fileEntries.map(restoreToolImageMimeTypes);
 		this._buildIndex();
 	}
 

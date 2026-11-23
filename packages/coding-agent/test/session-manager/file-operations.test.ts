@@ -93,6 +93,31 @@ describe("loadEntriesFromFile", () => {
 		expect(entries).toHaveLength(2);
 	});
 
+	it("restores a mislabeled tool image without rewriting the session file", () => {
+		const manager = SessionManager.create(tempDir, tempDir);
+		manager.appendMessage(userMsg("capture"));
+		const data = "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+		manager.appendMessage({
+			role: "toolResult",
+			toolName: "screenshot",
+			toolCallId: "capture-1",
+			content: [{ type: "image", data, mimeType: "image/jpeg" }],
+			isError: false,
+			timestamp: 1,
+		});
+		const file = manager.getSessionFile()!;
+		const before = readFileSync(file, "utf8");
+
+		const restored = SessionManager.open(file).buildSessionContext();
+		expect(restored.messages.at(-1)).toMatchObject({ content: [{ type: "image", data, mimeType: "image/gif" }] });
+		expect(readFileSync(file, "utf8")).toBe(before);
+
+		const entries = loadEntriesFromFile(file);
+		const inMemory = SessionManager.inMemory(tempDir, undefined, entries);
+		expect(inMemory.buildSessionContext().messages).toEqual(restored.messages);
+		expect(entries).toEqual(loadEntriesFromFile(file));
+	});
+
 	it("adds a newline after an unterminated valid record", () => {
 		const file = join(tempDir, "unterminated.jsonl");
 		const content =

@@ -4,6 +4,18 @@ const IMAGE_TYPE_SNIFF_BYTES = 4100;
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 export function detectSupportedImageMimeType(buffer: Uint8Array): string | null {
+	if (startsWithAscii(buffer, 0, "BM") && isBmp(buffer)) {
+		return "image/bmp";
+	}
+	return detectInlineImageMimeType(buffer);
+}
+
+export function detectInlineImageMimeTypeFromBase64(data: string): string | null {
+	const prefix = data.slice(0, Math.ceil((IMAGE_TYPE_SNIFF_BYTES * 4) / 3));
+	return detectInlineImageMimeType(Buffer.from(prefix, "base64"));
+}
+
+function detectInlineImageMimeType(buffer: Uint8Array): string | null {
 	if (startsWith(buffer, [0xff, 0xd8, 0xff])) {
 		return buffer[3] === 0xf7 ? null : "image/jpeg";
 	}
@@ -15,9 +27,6 @@ export function detectSupportedImageMimeType(buffer: Uint8Array): string | null 
 	}
 	if (startsWithAscii(buffer, 0, "RIFF") && startsWithAscii(buffer, 8, "WEBP")) {
 		return "image/webp";
-	}
-	if (startsWithAscii(buffer, 0, "BM") && isBmp(buffer)) {
-		return "image/bmp";
 	}
 	return null;
 }
