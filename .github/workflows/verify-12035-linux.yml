@@ -1,0 +1,47 @@
+name: Verify Pi 12035 on Linux
+
+on:
+  push:
+    branches: [verify-12035-linux-8209929]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.repository == 'dancvv/pi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fd-find ripgrep
+          sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build
+        run: npm run build
+
+      - name: Check
+        run: npm run check
+
+      - name: Test virtual model routing and compaction
+        run: npm test --workspace packages/coding-agent -- test/suite/virtual-models.test.ts --reporter=verbose
+
+      - name: Build the pi-env daemon
+        run: npm run build:daemon --workspace packages/env
+
+      - name: Run the full test script
+        run: CI=true ./test.sh
